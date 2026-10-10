@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://*.supabase.co https://cdn.jsdelivr.net; img-src 'self' data:; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>EntraPlus admin</title>
+  <link rel="stylesheet" href="admin.css">
+  <script src="config.js" defer></script>
+  <script src="admin-mock.js" defer></script>
+  <script src="admin.js" type="module"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo" aria-hidden="true">+</span> EntraPlus <span class="tag">Admin</span></div>
+    <div class="who" id="who" hidden><span id="who-email"></span> <button type="button" class="btn small" id="sign-out">Sign out</button></div>
+  </header>
+
+  <main id="main">
+    <p class="muted" id="loading">Loading…</p>
+
+    <section class="card narrow" id="signin" hidden>
+      <h1>EntraPlus admin</h1>
+      <p class="muted">Only for the EntraPlus owner. Sign in with your Microsoft account.</p>
+      <button type="button" class="btn primary" id="signin-btn">Sign in with Microsoft</button>
+      <p class="error" id="signin-error" role="alert" hidden></p>
+    </section>
+
+    <section class="card narrow" id="denied" hidden>
+      <h1>Not an admin account</h1>
+      <p>You're signed in as <strong id="denied-email"></strong>, but this account isn't on the admin list.</p>
+      <p class="muted">If this is you, add this user ID to the <code>ADMIN_USER_IDS</code> secret in Supabase
+        (Edge Functions &gt; Secrets), then reload:</p>
+      <p><code class="copy" id="denied-id"></code> <button type="button" class="btn small" id="copy-id">Copy</button></p>
+      <button type="button" class="btn" id="denied-signout">Sign out</button>
+    </section>
+
+    <div id="app" hidden>
+      <h1 class="sr-only">EntraPlus admin</h1>
+      <p class="notice" id="mock-note" hidden>Preview mode: made-up data, nothing is saved.</p>
+      <div class="totals" id="totals"></div>
+      <nav class="tabs" aria-label="Sections">
+        <button type="button" class="tab" data-tab="orgs" aria-current="page">Organisations</button>
+        <button type="button" class="tab" data-tab="coupons">Coupons</button>
+        <button type="button" class="tab" data-tab="audit">Audit log</button>
+      </nav>
+
+      <!-- Organisations -->
+      <section id="tab-orgs">
+        <div class="row"><input type="search" id="org-search" placeholder="Search by organisation, manager email or tenant ID" aria-label="Search organisations"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Organisation</th><th>Managers</th><th>People</th><th>Seats</th><th>Licence</th><th>Ends</th></tr></thead>
+            <tbody id="org-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- One organisation -->
+      <section id="tab-org" hidden>
+        <button type="button" class="btn small" id="back">← All organisations</button>
+        <h1 id="org-name"></h1>
+        <p class="muted mono" id="org-meta"></p>
+        <div class="grid">
+          <div class="card">
+            <h2>Licence</h2>
+            <dl class="facts" id="lic-facts"></dl>
+            <div class="actions">
+              <details><summary>Give a free trial</summary>
+                <form class="form" data-act="trial">
+                  <label>Seats <input name="seats" type="number" min="1" max="500" value="3" required></label>
+                  <label>Length <select name="days"><option value="14">14 days</option><option value="30" selected>30 days</option><option value="60">60 days</option><option value="90">90 days</option></select></label>
+                  <label>Note <input name="note" maxlength="200" placeholder="e.g. Bett show trial"></label>
+                  <button class="btn primary">Start trial</button>
+                </form></details>
+              <details><summary>Give a manual / complimentary licence</summary>
+                <form class="form" data-act="manual">
+                  <label>Seats <input name="seats" type="number" min="1" max="500" value="5" required></label>
+                  <label>Valid until <input name="until" type="date" required></label>
+                  <label>Note <input name="note" maxlength="200" placeholder="e.g. Partner school, paid by invoice"></label>
+                  <button class="btn primary">Give licence</button>
+                </form></details>
+              <details><summary>Extend</summary>
+                <form class="form" data-act="extend">
+                  <label>By <select name="days"><option value="30">30 days</option><option value="90">90 days</option><option value="365" selected>1 year</option></select></label>
+                  <p class="hint" id="extend-hint"></p>
+                  <button class="btn primary">Extend</button>
+                </form></details>
+              <details id="seats-box"><summary>Change seats (trial or manual)</summary>
+                <form class="form" data-act="seats">
+                  <label>Seats <input name="seats" type="number" min="0" max="500" required></label>
+                  <button class="btn primary">Save seats</button>
+                </form></details>
+              <div class="row">
+                <button type="button" class="btn" data-act="resync">Resync from Stripe</button>
+                <button type="button" class="btn danger" data-act="revoke-end">Remove at period end</button>
+                <button type="button" class="btn danger" data-act="revoke-now">Remove now</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Stripe subscriptions</h2>
+            <p class="hint">Everything in Stripe tagged with this organisation. Only one should be active.</p>
+            <ul class="list" id="stripe-subs"></ul>
+          </div>
+        </div>
+        <div class="card">
+          <h2>People</h2>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Person</th><th>Role</th><th>Pro seat</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <tbody id="member-rows"></tbody>
+          </table></div>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <h2>Purchase history</h2>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Date</th><th>Invoice</th><th>Seats</th><th>Amount</th><th>Status</th></tr></thead>
+              <tbody id="invoice-rows"></tbody>
+            </table></div>
+          </div>
+          <div class="card">
+            <h2>Admin changes</h2>
+            <ul class="list small" id="org-audit"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Coupons -->
+      <section id="tab-coupons" hidden>
+        <div class="card">
+          <h2>New coupon</h2>
+          <form class="form wide" id="coupon-form">
+            <label>Code <input name="code" required placeholder="HALLOWEEN20" maxlength="40" class="upper"></label>
+            <label>Discount % <input name="percent_off" type="number" min="1" max="100" value="20" required></label>
+            <label>Discount applies to <select name="duration">
+              <option value="once">The first payment only</option>
+              <option value="repeating">Several months (monthly plans)</option>
+              <option value="forever">Every payment, for good</option></select></label>
+            <label id="months-label" hidden>For how many months <input name="duration_in_months" type="number" min="1" max="36" value="3"></label>
+            <label>Last day to use it <input name="expires_at" type="date"></label>
+            <label>Maximum uses <input name="max_redemptions" type="number" min="1" placeholder="No limit"></label>
+            <label class="check"><input name="first_time_only" type="checkbox"> New customers only</label>
+            <button class="btn primary">Create coupon</button>
+          </form>
+          <p class="hint">Customers type the code on Stripe's checkout page. "The first payment only" on a yearly plan takes
+            the % off the whole first year.</p>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Code</th><th>Discount</th><th>Applies to</th><th>Last day</th><th>Used</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="coupon-rows"></tbody>
+        </table></div>
+      </section>
+
+      <!-- Audit -->
+      <section id="tab-audit" hidden>
+        <div class="table-wrap"><table>
+          <thead><tr><th>When</th><th>Admin</th><th>What</th><th>Organisation</th><th>Details</th></tr></thead>
+          <tbody id="audit-rows"></tbody>
+        </table></div>
+      </section>
+    </div>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
