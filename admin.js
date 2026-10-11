@@ -49,6 +49,13 @@ async function act(action, body, done) {
 /* ------------------------------------------------------------- start-up and sign-in */
 const VERIFIER_KEY = "ep-admin-auth-code-verifier";
 
+// Secret keys start sb_secret_ (new style) or are JWTs whose role is service_role (old style).
+function isSecretKey(key) {
+  if (key.startsWith("sb_secret_")) return true;
+  try { return JSON.parse(atob(key.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).role === "service_role"; }
+  catch { return false; }
+}
+
 function signInProblem(msg) {
   show("#loading", false);
   show("#signin");
@@ -70,8 +77,14 @@ function diagnostics(extra = "") {
 
 async function start() {
   if (cfg.mock) { show("#mock-note"); return enter("you@entraplus.co.uk"); }
+  cfg.supabaseAnonKey = String(cfg.supabaseAnonKey || "").replace(/\s+/g, "");      // stray spaces or line breaks
   if (!cfg.supabaseAnonKey || cfg.supabaseAnonKey.startsWith("PASTE")) {
     return signInProblem("config.js still needs the Supabase publishable (anon) key: the same one as the website's config.js.");
+  }
+  if (isSecretKey(cfg.supabaseAnonKey)) {
+    return signInProblem("<strong>Stop: config.js contains your SECRET Supabase key.</strong> That key gives full access to your " +
+      "database and must never be in a web page. In Supabase > Project Settings > API Keys, roll (replace) the secret key " +
+      "now, update it wherever the server functions use it, and put the <strong>publishable</strong> key in config.js instead.");
   }
   const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
   // We finish the Microsoft sign-in ourselves (rather than automatically) so any problem is shown, not swallowed.
@@ -93,6 +106,12 @@ async function start() {
     const { error } = await client.auth.exchangeCodeForSession(code);
     if (error) {
       diagnostics(`Supabase said: ${error.message}`);
+      if (error.status === 401 || /api key|apikey|unauthor/i.test(error.message)) {
+        return signInProblem(`Supabase didn't accept the key in this panel's <strong>config.js</strong> (401: ` +
+          `<strong>${esc(error.message)}</strong>). This panel is using a key starting <strong>${esc(cfg.supabaseAnonKey.slice(0, 16))}…</strong>. ` +
+          "Copy the <strong>publishable</strong> key exactly as it appears in your website's config.js (it starts sb_publishable_ " +
+          "or eyJ), on one line inside the quotes, then upload config.js again, wait a minute and press Ctrl+F5.");
+      }
       return signInProblem(!hadVerifier || /verifier/i.test(error.message)
         ? "The sign-in came back, but this browser has no record of starting it here. This happens when sign-in starts " +
           "on a slightly different address from the one it returns to (http vs https, or another domain). Open the panel " +
