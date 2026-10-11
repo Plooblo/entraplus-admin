@@ -75,6 +75,19 @@ A separate, private control panel for you. It's not linked from the website and 
    - Open your organisation and press **Resync from Stripe**, which fills your missing purchase history.
    - Then **Cancel duplicate** on the extra test subscriptions you don't want.
 
+## If sign-in doesn't open the panel
+
+The panel now says exactly what went wrong instead of quietly showing Sign in again. If it shows an error, open
+**Details for troubleshooting** and send a screenshot. The usual causes:
+
+- **"No record of starting it here".** You started on a slightly different address from the one Supabase returned to.
+  Always open exactly `https://admin.entraplus.co.uk/` (https, no `www`), and make sure Supabase > Authentication >
+  URL Configuration > **Redirect URLs** contains `https://admin.entraplus.co.uk/**`. The **Site URL** there must stay
+  `https://entraplus.co.uk`.
+- **"Couldn't reach the admin function".** `ADMIN_ORIGIN` should be `https://admin.entraplus.co.uk`, or the admin
+  function isn't deployed yet.
+- **"Not an admin account".** Copy the ID it shows into `ADMIN_USER_IDS`. Quotes, spaces and new lines don't matter.
+
 ## Preview it without signing in
 
 Set `mock: true` in `config.js` and open `index.html` through `python -m http.server`. You get made-up data and

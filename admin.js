@@ -47,10 +47,61 @@ async function act(action, body, done) {
 }
 
 /* ------------------------------------------------------------- start-up and sign-in */
+const VERIFIER_KEY = "ep-admin-auth-code-verifier";
+
+function signInProblem(msg) {
+  show("#loading", false);
+  show("#signin");
+  $("#signin-error").innerHTML = msg;
+  show("#signin-error");
+}
+
+let arrivedWithCode = false;
+function diagnostics(extra = "") {
+  $("#diag").textContent = [
+    `Address: ${location.origin}${location.pathname}`,
+    `Redirect URL Supabase must allow: ${location.origin}${location.pathname}`,
+    `Arrived with a sign-in code: ${arrivedWithCode ? "yes" : "no"}`,
+    `Saved sign-in check in this browser: ${localStorage.getItem(VERIFIER_KEY) ? "yes" : "no"}`,
+    extra,
+  ].filter(Boolean).join("\n");
+  show("#diag-box");
+}
+
 async function start() {
   if (cfg.mock) { show("#mock-note"); return enter("you@entraplus.co.uk"); }
+  if (!cfg.supabaseAnonKey || cfg.supabaseAnonKey.startsWith("PASTE")) {
+    return signInProblem("config.js still needs the Supabase publishable (anon) key: the same one as the website's config.js.");
+  }
   const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
-  client = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { flowType: "pkce", storageKey: "ep-admin-auth" } });
+  // We finish the Microsoft sign-in ourselves (rather than automatically) so any problem is shown, not swallowed.
+  client = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey,
+                        { auth: { flowType: "pkce", storageKey: "ep-admin-auth", detectSessionInUrl: false } });
+
+  const q = new URLSearchParams(location.search);
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const returnedError = q.get("error_description") || hash.get("error_description");
+  const code = q.get("code");
+  arrivedWithCode = !!code;
+  if (returnedError || code) history.replaceState(null, "", location.pathname);      // tidy the address bar
+  if (returnedError) {
+    diagnostics();
+    return signInProblem(`Microsoft or Supabase refused the sign-in: <strong>${esc(returnedError)}</strong>`);
+  }
+  if (code) {
+    const hadVerifier = !!localStorage.getItem(VERIFIER_KEY);
+    const { error } = await client.auth.exchangeCodeForSession(code);
+    if (error) {
+      diagnostics(`Supabase said: ${error.message}`);
+      return signInProblem(!hadVerifier || /verifier/i.test(error.message)
+        ? "The sign-in came back, but this browser has no record of starting it here. This happens when sign-in starts " +
+          "on a slightly different address from the one it returns to (http vs https, or another domain). Open the panel " +
+          `at exactly <strong>${esc(location.origin + location.pathname)}</strong>, make sure that address is in Supabase's ` +
+          "Redirect URLs, and press Sign in again."
+        : `Couldn't finish signing in: <strong>${esc(error.message)}</strong>. Press Sign in to try again.`);
+    }
+  }
+
   const { data: { session } } = await client.auth.getSession();
   show("#loading", false);
   if (!session) { show("#signin"); return; }
@@ -62,7 +113,13 @@ async function start() {
       $("#denied-email").textContent = e.data.email || "this account";
       $("#denied-id").textContent = e.data.your_user_id || "";
       show("#denied");
-    } else { show("#signin"); $("#signin-error").textContent = e.message; show("#signin-error"); }
+    } else {
+      diagnostics(`Admin function said: ${e.status || "no reply"} ${e.message}`);
+      signInProblem(e.status
+        ? `You're signed in, but the admin function refused: <strong>${esc(e.message)}</strong>`
+        : "You're signed in, but the browser couldn't reach the admin function. The usual cause is the ADMIN_ORIGIN secret " +
+          `not matching this address exactly: it should be <strong>${esc(location.origin)}</strong>. Also check the admin function is deployed.`);
+    }
   }
 }
 
